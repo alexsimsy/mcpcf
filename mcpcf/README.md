@@ -1,3 +1,190 @@
+# MCP Server
+
+A Mobile Telecoms MCP server that allows customers to control their SIMs like a mobile operator.
+
+## Configuration
+
+The server can be configured using environment variables or by modifying the `config.ts` file.
+
+### Token Configuration
+
+The server requires a token for authentication. You can set the token in one of two ways:
+
+1. **Environment Variable**:
+   ```bash
+   export MCP_CONFIG='{"token": "your-token-here"}'
+   ```
+
+2. **Config File**:
+   Modify the `config.ts` file and update the `defaultConfig` object:
+   ```typescript
+   const defaultConfig = {
+       token: "your-token-here",
+   };
+   ```
+
+### Default Configuration
+
+The server comes with a default test token for development purposes. In production, you should replace this with your own token.
+
+## Development
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Start the development server:
+   ```bash
+   npx wrangler dev
+   ```
+
+3. Run tests:
+   ```bash
+   npx tsx test.ts
+   ```
+
+## API Endpoints
+
+- `/health` - Health check endpoint
+- `/verify-token` - Token verification endpoint
+- `/sse` - Server-Sent Events endpoint
+- `/mcp` - MCP protocol endpoint
+- `/stream` - Streaming endpoint
+
+## MCP Inspector Testing
+
+To test the server using the MCP inspector, use the following configuration:
+
+### Server Configuration
+- Server URL: `http://localhost:8787/mcp`
+- SSE URL: `http://localhost:8787/sse`
+
+### Authentication
+
+The MCP endpoint requires authentication. You can provide the token in two ways:
+
+1. **Authorization Header**:
+   ```
+   Authorization: Bearer your-token-here
+   ```
+
+2. **Request Body**:
+   ```json
+   {
+     "token": "your-token-here",
+     "tool": "add",
+     "params": {
+       "a": 5,
+       "b": 3
+     }
+   }
+   ```
+
+### Available Tools
+
+1. **Add Tool**
+   ```json
+   {
+     "tool": "add",
+     "params": {
+       "a": 5,
+       "b": 3
+     }
+   }
+   ```
+
+2. **Calculate Tool**
+   ```json
+   {
+     "tool": "calculate",
+     "params": {
+       "operation": "add",
+       "a": 5,
+       "b": 3
+     }
+   }
+   ```
+   Available operations: `add`, `subtract`, `multiply`, `divide`
+
+### Testing Flow
+
+1. Start the server:
+   ```bash
+   npx wrangler dev
+   ```
+
+2. Open the MCP inspector in your browser
+
+3. Configure the inspector with:
+   - Server URL: `http://localhost:8787/mcp`
+   - SSE URL: `http://localhost:8787/sse`
+   - Add the Authorization header with your token
+
+4. Test the tools:
+   - Try the `add` tool with different numbers
+   - Try the `calculate` tool with different operations
+   - Verify SSE connections are working
+   - Check that responses are properly formatted
+
+### Example Responses
+
+1. Add Tool Response:
+   ```json
+   {
+     "content": [
+       {
+         "type": "text",
+         "text": "8"
+       }
+     ]
+   }
+   ```
+
+2. Calculate Tool Response:
+   ```json
+   {
+     "content": [
+       {
+         "type": "text",
+         "text": "8"
+       }
+     ]
+   }
+   ```
+
+### Error Responses
+
+1. No Token Provided:
+   ```json
+   {
+     "error": "No token provided"
+   }
+   ```
+
+2. Invalid Token:
+   ```json
+   {
+     "error": "Invalid token"
+   }
+   ```
+
+## Security
+
+- All endpoints are protected with CORS headers
+- Token verification is required for sensitive operations
+- Error responses are properly formatted and logged
+
+## Testing
+
+The test suite verifies:
+- Token verification
+- SSE functionality
+- Stream handling
+- MCP protocol
+- Error handling
+- CORS configuration
+
 # MCP Cloudflare Worker (No Auth)
 
 This is the working repository for the MCP server deployed on Cloudflare Workers, maintained by the team at [alexsimsy/mcpcf](https://github.com/alexsimsy/mcpcf).
