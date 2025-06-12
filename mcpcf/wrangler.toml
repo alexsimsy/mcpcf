@@ -1,0 +1,15 @@
+# Cloudflare Worker wrangler.toml
+name = "mcpcf-worker"
+main = "src/index.ts"
+compatibility_date = "2024-06-01"
+
+# --- KV Namespace ---
+[[kv_namespaces]]
+binding = "SESSIONS_KV"
+id = "6fd723a6010e43a9b12d39119e5e2327"
+
+# --- D1 Database ---
+[[d1_databases]]
+binding = "MY_D1"
+database_name = "your-d1-db"
+database_id = "7c0449c0-180f-4c23-b122-c542d9762adc" 

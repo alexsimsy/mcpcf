@@ -27,6 +27,39 @@ The server requires a token for authentication. You can set the token in one of 
 
 The server comes with a default test token for development purposes. In production, you should replace this with your own token.
 
+## Session and Token Management (KV & D1)
+
+- When a user authenticates, their token is stored in Cloudflare KV using a `sessionId`.
+- Session metadata (sessionId, userId, token, created_at) is stored in Cloudflare D1.
+- Subsequent requests can use the sessionId (via the `Mcp-Session-Id` header) to validate the token.
+- If no sessionId is provided, the server falls back to the config token for validation.
+
+### Example: Store a Token and Create a Session
+
+```http
+POST /verify-token
+Content-Type: application/json
+
+{
+  "token": "user-jwt-or-api-token",
+  "sessionId": "abc123",
+  "userId": "user-uuid" // optional
+}
+```
+- Stores the token in KV for 1 hour.
+- Creates a session row in D1 with metadata.
+
+### Example: MCP Request with Session
+
+Send the sessionId in the `Mcp-Session-Id` header and the token in the Authorization header:
+
+```
+Authorization: Bearer user-jwt-or-api-token
+Mcp-Session-Id: abc123
+```
+
+The server will validate the token using KV (and fallback to config if not found).
+
 ## Development
 
 1. Install dependencies:
@@ -47,9 +80,11 @@ The server comes with a default test token for development purposes. In producti
 ## API Endpoints
 
 - `/health` - Health check endpoint
-- `/verify-token` - Token verification endpoint
+- `/verify-token` - Store a token in KV and create a session in D1
+- `/kv-token` - Directly store/retrieve a token in KV (for testing)
+- `/d1-test` - Insert/query a user row in D1 (for testing)
 - `/sse` - Server-Sent Events endpoint
-- `/mcp` - MCP protocol endpoint
+- `/mcp` - MCP protocol endpoint (requires token and sessionId)
 - `/stream` - Streaming endpoint
 
 ## MCP Inspector Testing
@@ -67,12 +102,14 @@ The MCP endpoint requires authentication. You can provide the token in two ways:
 1. **Authorization Header**:
    ```
    Authorization: Bearer your-token-here
+   Mcp-Session-Id: your-session-id
    ```
 
 2. **Request Body**:
    ```json
    {
      "token": "your-token-here",
+     "sessionId": "your-session-id",
      "tool": "add",
      "params": {
        "a": 5,
@@ -120,6 +157,7 @@ The MCP endpoint requires authentication. You can provide the token in two ways:
    - Server URL: `http://localhost:8787/mcp`
    - SSE URL: `http://localhost:8787/sse`
    - Add the Authorization header with your token
+   - Add the Mcp-Session-Id header with your sessionId
 
 4. Test the tools:
    - Try the `add` tool with different numbers
