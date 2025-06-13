@@ -1,15 +1,17 @@
 # Cloudflare Worker wrangler.toml
-name = "mcpcf-worker"
+name = "remote-mcp-server-authless"
 main = "src/index.ts"
-compatibility_date = "2024-06-01"
+compatibility_date = "2024-01-01"
 
-# --- KV Namespace ---
-[[kv_namespaces]]
-binding = "SESSIONS_KV"
-id = "6fd723a6010e43a9b12d39119e5e2327"
+# Development configuration
+[dev]
+port = 8787
 
-# --- D1 Database ---
-[[d1_databases]]
-binding = "MY_D1"
-database_name = "your-d1-db"
-database_id = "7c0449c0-180f-4c23-b122-c542d9762adc" 
+# Production configuration
+[env.production]
+workers_dev = true
+route = "mcp.yourdomain.com/*"  # Replace with your actual domain
+
+# Environment variables
+[vars]
+TOKEN = "your-secret-token-here"  # Replace with your actual token 

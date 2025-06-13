@@ -68,21 +68,8 @@ export class MyMCP extends McpAgent {
 const corsHeaders = {
 	"Access-Control-Allow-Origin": "*",
 	"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-	"Access-Control-Allow-Headers": "Content-Type, Authorization, MCP-Protocol-Version",
+	"Access-Control-Allow-Headers": "Content-Type, Authorization, MCP-Protocol-Version, MCP-Session-Id",
 };
-
-// Helper function to create SSE response
-function createSSEResponse(data: string, event?: string) {
-	const eventString = event ? `event: ${event}\n` : "";
-	return new Response(`${eventString}data: ${data}\n\n`, {
-		headers: {
-			"Content-Type": "text/event-stream",
-			"Cache-Control": "no-cache",
-			"Connection": "keep-alive",
-			...corsHeaders,
-		},
-	});
-}
 
 // Helper function to create error response
 function createErrorResponse(message: string, status: number = 400) {
@@ -106,13 +93,8 @@ function createSuccessResponse(data: any, status: number = 200) {
 	});
 }
 
-// Helper function to verify token (now checks KV first, then config)
-async function verifyToken(token: string, sessionId: string | null, env: Env): Promise<boolean> {
-	if (sessionId) {
-		const kvToken = await env.SESSIONS_KV.get(sessionId);
-		if (kvToken && kvToken === token) return true;
-	}
-	// Fallback to config token
+// Helper function to verify token
+async function verifyToken(token: string): Promise<boolean> {
 	return token === config.token;
 }
 
@@ -139,11 +121,22 @@ async function extractToken(request: Request): Promise<string | null> {
 	return null;
 }
 
+// Helper function to create SSE response
+function createSSEResponse(data: string, event?: string) {
+	const eventString = event ? `event: ${event}\n` : "";
+	return new Response(`${eventString}data: ${data}\n\n`, {
+		headers: {
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-cache",
+			"Connection": "keep-alive",
+			...corsHeaders,
+		},
+	});
+}
+
 // TypeScript Env type for Cloudflare bindings
 interface Env {
-	SESSIONS_KV: KVNamespace;
-	MY_D1: D1Database;
-	// ...other bindings
+	// No bindings needed
 }
 
 export default {
@@ -167,27 +160,16 @@ export default {
 				return createSuccessResponse({ status: "healthy" });
 			}
 
-			// Token verification endpoint
-			if (url.pathname === "/verify-token") {
-				if (request.method !== "POST") {
-					return createErrorResponse("Method not allowed", 405);
-				}
-				const body = await request.json() as { token?: string; sessionId?: string; userId?: string };
-				const { token, sessionId, userId } = body;
-				if (!token || !sessionId) {
-					return createErrorResponse("token and sessionId required", 400);
-				}
-				// Store token in KV
-				await env.SESSIONS_KV.put(sessionId, token, { expirationTtl: 3600 });
-				// Create session row in D1 (optional userId)
-				await env.MY_D1.prepare("CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, user_id TEXT, token TEXT, created_at DATETIME)").run();
-				await env.MY_D1.prepare("INSERT OR REPLACE INTO sessions (session_id, user_id, token, created_at) VALUES (?, ?, ?, ?)")
-					.bind(sessionId, userId || null, token, new Date().toISOString()).run();
-				return createSuccessResponse({ ok: true, message: "Token stored in KV and session created in D1" });
-			}
-
 			// SSE endpoints
 			if (url.pathname === "/sse" || url.pathname === "/sse/message") {
+				const token = await extractToken(request);
+				if (!token) {
+					return createErrorResponse("No token provided", 401);
+				}
+				const isValid = await verifyToken(token);
+				if (!isValid) {
+					return createErrorResponse("Invalid token", 401);
+				}
 				const sseHandler = MyMCP.serveSSE("/sse");
 				const response = await sseHandler.fetch(request, env, ctx);
 				
@@ -204,41 +186,17 @@ export default {
 				});
 			}
 
-			// MCP endpoint
-			if (url.pathname === "/mcp") {
-				// Debug: Log MCP request
-				console.log(`[DEBUG] Handling /mcp request`);
-				const token = await extractToken(request);
-				const sessionId = request.headers.get("Mcp-Session-Id") || null;
-				console.log(`[DEBUG] Extracted token:`, token, "sessionId:", sessionId);
-				if (!token) {
-					console.log(`[DEBUG] No token provided, returning 401`);
-					return createErrorResponse("No token provided", 401);
-				}
-				const isValid = await verifyToken(token, sessionId, env);
-				console.log(`[DEBUG] Token valid:`, isValid);
-				if (!isValid) {
-					console.log(`[DEBUG] Invalid token, returning 401`);
-					return createErrorResponse("Invalid token", 401);
-				}
-				const mcpHandler = MyMCP.serve("/mcp");
-				const response = await mcpHandler.fetch(request, env, ctx);
-				
-				// Add CORS headers to MCP response
-				const headers = new Headers(response.headers);
-				Object.entries(corsHeaders).forEach(([key, value]) => {
-					headers.set(key, value);
-				});
-				
-				return new Response(response.body, {
-					status: response.status,
-					statusText: response.statusText,
-					headers,
-				});
-			}
-
 			// Stream endpoint with proper SSE formatting
 			if (url.pathname === "/stream") {
+				const token = await extractToken(request);
+				if (!token) {
+					return createErrorResponse("No token provided", 401);
+				}
+				const isValid = await verifyToken(token);
+				if (!isValid) {
+					return createErrorResponse("Invalid token", 401);
+				}
+
 				const stream = new ReadableStream({
 					start(controller) {
 						// Send initial connection event
@@ -267,48 +225,36 @@ export default {
 				});
 			}
 
-			// --- Sample KV Token Endpoints ---
-			if (url.pathname === "/kv-token" && request.method === "POST") {
-				// Store a token in KV: expects JSON { sessionId, token }
-				const body = await request.json() as { sessionId?: string; token?: string };
-				const { sessionId, token } = body;
-				if (!sessionId || !token) {
-					return createErrorResponse("sessionId and token required", 400);
+			// MCP endpoint
+			if (url.pathname === "/mcp") {
+				// Debug: Log MCP request
+				console.log(`[DEBUG] Handling /mcp request`);
+				const token = await extractToken(request);
+				console.log(`[DEBUG] Extracted token:`, token);
+				if (!token) {
+					console.log(`[DEBUG] No token provided, returning 401`);
+					return createErrorResponse("No token provided", 401);
 				}
-				await env.SESSIONS_KV.put(sessionId, token, { expirationTtl: 3600 });
-				return createSuccessResponse({ ok: true });
-			}
-			if (url.pathname === "/kv-token" && request.method === "GET") {
-				// Retrieve a token from KV: expects ?sessionId=...
-				const sessionId = url.searchParams.get("sessionId");
-				if (!sessionId) {
-					return createErrorResponse("sessionId required", 400);
+				const isValid = await verifyToken(token);
+				console.log(`[DEBUG] Token valid:`, isValid);
+				if (!isValid) {
+					console.log(`[DEBUG] Invalid token, returning 401`);
+					return createErrorResponse("Invalid token", 401);
 				}
-				const token = await env.SESSIONS_KV.get(sessionId);
-				return createSuccessResponse({ token });
-			}
-
-			// --- Sample D1 Test Endpoints ---
-			if (url.pathname === "/d1-test" && request.method === "POST") {
-				// Insert a row: expects JSON { id, name }
-				const body = await request.json() as { id?: string; name?: string };
-				const { id, name } = body;
-				if (!id || !name) {
-					return createErrorResponse("id and name required", 400);
-				}
-				await env.MY_D1.prepare("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT)").run();
-				await env.MY_D1.prepare("INSERT INTO users (id, name) VALUES (?, ?)").bind(id, name).run();
-				return createSuccessResponse({ ok: true });
-			}
-			if (url.pathname === "/d1-test" && request.method === "GET") {
-				// Query a row: expects ?id=...
-				const id = url.searchParams.get("id");
-				if (!id) {
-					return createErrorResponse("id required", 400);
-				}
-				await env.MY_D1.prepare("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT)").run();
-				const { results } = await env.MY_D1.prepare("SELECT * FROM users WHERE id = ?").bind(id).all();
-				return createSuccessResponse({ user: results[0] || null });
+				const mcpHandler = MyMCP.serve("/mcp");
+				const response = await mcpHandler.fetch(request, env, ctx);
+				
+				// Add CORS headers to MCP response
+				const headers = new Headers(response.headers);
+				Object.entries(corsHeaders).forEach(([key, value]) => {
+					headers.set(key, value);
+				});
+				
+				return new Response(response.body, {
+					status: response.status,
+					statusText: response.statusText,
+					headers,
+				});
 			}
 
 			// Not found response
