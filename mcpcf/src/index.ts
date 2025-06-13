@@ -16,49 +16,197 @@ export class MyMCP extends McpAgent {
 	});
 
 	async init() {
-		// Simple addition tool
+		// Get SIMs information tool
 		this.server.tool(
-			"add",
-			{ a: z.number(), b: z.number() },
-			async ({ a, b }) => ({
-				content: [{ type: "text", text: String(a + b) }],
-			})
+			"getSims",
+			"Get a list of all SIMs with their basic information",
+			{},
+			{ group: "General" },
+			async () => {
+				try {
+					const response = await fetch('https://api.s-imsy.com/api/v1/endpoints', {
+						headers: {
+							'Authorization': `Bearer ${config.token}`,
+							'Content-Type': 'application/json'
+						}
+					});
+
+					if (!response.ok) {
+						throw new Error(`API request failed with status ${response.status}`);
+					}
+
+					interface NetworkStatus {
+						moniker: string;
+						name: string;
+						active: boolean;
+					}
+
+					interface SimItem {
+						id: string;
+						name: string;
+						endpointNetworkStatus: NetworkStatus;
+					}
+
+					interface ApiResponse {
+						success: boolean;
+						messages: string[];
+						totalItems: number;
+						data: SimItem[];
+					}
+
+					const data = await response.json() as ApiResponse;
+					
+					if (!data.success) {
+						throw new Error(data.messages.join(', '));
+					}
+
+					const sims = data.data.map((sim) => ({
+						id: sim.id,
+						name: sim.name,
+						status: sim.endpointNetworkStatus.name
+					}));
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Total SIMs: ${data.totalItems}\n\nSIM Details:\n${JSON.stringify(sims, null, 2)}`
+							}
+						]
+					};
+				} catch (error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error retrieving SIM information: ${error instanceof Error ? error.message : 'Unknown error'}`
+							}
+						]
+					};
+				}
+			}
 		);
 
-		// Calculator tool with multiple operations
+		// Get detailed SIM information tool
 		this.server.tool(
-			"calculate",
+			"getSimInfo",
+			"Get detailed information about a specific SIM",
 			{
-				operation: z.enum(["add", "subtract", "multiply", "divide"]),
-				a: z.number(),
-				b: z.number(),
+				name: z.string().describe("The name of the SIM to get information for")
 			},
-			async ({ operation, a, b }) => {
-				let result: number;
-				switch (operation) {
-					case "add":
-						result = a + b;
-						break;
-					case "subtract":
-						result = a - b;
-						break;
-					case "multiply":
-						result = a * b;
-						break;
-					case "divide":
-						if (b === 0)
-							return {
-								content: [
-									{
-										type: "text",
-										text: "Error: Cannot divide by zero",
-									},
-								],
-							};
-						result = a / b;
-						break;
+			{ group: "General" },
+			async ({ name }) => {
+				try {
+					// First, get all SIMs to find the ID for the given name
+					const listResponse = await fetch('https://api.s-imsy.com/api/v1/endpoints', {
+						headers: {
+							'Authorization': `Bearer ${config.token}`,
+							'Content-Type': 'application/json'
+						}
+					});
+
+					if (!listResponse.ok) {
+						throw new Error(`API request failed with status ${listResponse.status}`);
+					}
+
+					interface SimListItem {
+						id: string;
+						name: string;
+					}
+
+					interface ListApiResponse {
+						success: boolean;
+						messages: string[];
+						data: SimListItem[];
+					}
+
+					const listData = await listResponse.json() as ListApiResponse;
+					if (!listData.success) {
+						throw new Error(listData.messages.join(', '));
+					}
+
+					// Find the SIM with the matching name
+					const sim = listData.data.find((s) => s.name === name);
+					if (!sim) {
+						throw new Error(`No SIM found with name: ${name}`);
+					}
+
+					// Get detailed information for the specific SIM
+					const detailResponse = await fetch(`https://api.s-imsy.com/api/v1/endpoints/${sim.id}`, {
+						headers: {
+							'Authorization': `Bearer ${config.token}`,
+							'Content-Type': 'application/json'
+						}
+					});
+
+					if (!detailResponse.ok) {
+						throw new Error(`API request failed with status ${detailResponse.status}`);
+					}
+
+					interface RatType {
+						name: string;
+					}
+
+					interface EndpointStatus {
+						active: boolean;
+					}
+
+					interface SimDetail {
+						latestActivity: string;
+						endpointStatus: EndpointStatus;
+						endpointNetworkStatus: EndpointStatus;
+						latestRatType: RatType;
+						latestServingOperatorDescription: string;
+						latestCountryName: string;
+						usageRolling24H: number;
+						usageRolling7D: number;
+						usageRolling28D: number;
+					}
+
+					interface DetailApiResponse {
+						success: boolean;
+						messages: string[];
+						data: SimDetail;
+					}
+
+					const detailData = await detailResponse.json() as DetailApiResponse;
+					if (!detailData.success) {
+						throw new Error(detailData.messages.join(', '));
+					}
+
+					// Convert bytes to MB (1 MB = 1024 * 1024 bytes)
+					const bytesToMB = (bytes: number) => (bytes / (1024 * 1024)).toFixed(2);
+
+					const simInfo = {
+						latestActivity: detailData.data.latestActivity,
+						endpointStatus: detailData.data.endpointStatus.active,
+						endpointNetworkStatus: detailData.data.endpointNetworkStatus.active,
+						latestRatType: detailData.data.latestRatType.name,
+						latestServingOperatorDescription: detailData.data.latestServingOperatorDescription,
+						latestCountryName: detailData.data.latestCountryName,
+						usageRolling24H: `${bytesToMB(detailData.data.usageRolling24H)} MB`,
+						usageRolling7D: `${bytesToMB(detailData.data.usageRolling7D)} MB`,
+						usageRolling28D: `${bytesToMB(detailData.data.usageRolling28D)} MB`
+					};
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: `SIM Information for ${name}:\n${JSON.stringify(simInfo, null, 2)}`
+							}
+						]
+					};
+				} catch (error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error retrieving SIM information: ${error instanceof Error ? error.message : 'Unknown error'}`
+							}
+						]
+					};
 				}
-				return { content: [{ type: "text", text: String(result) }] };
 			}
 		);
 	}
