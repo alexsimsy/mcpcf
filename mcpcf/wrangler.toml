@@ -9,8 +9,8 @@ port = 8787
 
 # Production configuration
 [env.production]
-workers_dev = true
-route = "mcp.yourdomain.com/*"  # Replace with your actual domain
+workers_dev = false
+route = "mcp.s-imsy.com/*"
 
 # Environment variables
 [vars]

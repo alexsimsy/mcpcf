@@ -87,12 +87,125 @@ export class MyMCP extends McpAgent {
 			}
 		);
 
+		// Fetch SIM names for dropdown
+		let simNames: string[] = [];
+		try {
+			const response = await fetch('https://api.s-imsy.com/api/v1/endpoints', {
+				headers: {
+					'Authorization': `Bearer ${config.token}`,
+					'Content-Type': 'application/json'
+				}
+			});
+			if (response.ok) {
+				interface SimListItem { id: string; name: string; }
+				interface ListApiResponse { success: boolean; messages: string[]; data: SimListItem[]; }
+				const data = await response.json() as ListApiResponse;
+				if (data.success && Array.isArray(data.data)) {
+					simNames = data.data.map((sim) => sim.name).filter((name) => typeof name === 'string');
+				}
+			}
+		} catch (e) {
+			// If fetching SIM names fails, fallback to string input
+		}
+
+		// Send SMS to a SIM tool
+		this.server.tool(
+			"sendSms",
+			"Send an SMS message to a SIM card",
+			{
+				name: simNames.length > 0
+					? z.enum([...simNames] as [string, ...string[]]).describe("The name of the SIM to send the SMS to")
+					: z.string().describe("The name of the SIM to send the SMS to"),
+				payloadText: z.string().describe("The SMS message to send")
+			},
+			{ group: "General" },
+			async ({ name, payloadText }) => {
+				try {
+					// First, get all SIMs to find the ID for the given name
+					const listResponse = await fetch('https://api.s-imsy.com/api/v1/endpoints', {
+						headers: {
+							'Authorization': `Bearer ${config.token}`,
+							'Content-Type': 'application/json'
+						}
+					});
+
+					if (!listResponse.ok) {
+						throw new Error(`API request failed with status ${listResponse.status}`);
+					}
+
+					interface SimListItem {
+						id: string;
+						name: string;
+					}
+
+					interface ListApiResponse {
+						success: boolean;
+						messages: string[];
+						data: SimListItem[];
+					}
+
+					const listData = await listResponse.json() as ListApiResponse;
+					if (!listData.success) {
+						throw new Error(listData.messages.join(', '));
+					}
+
+					// Find the SIM with the matching name
+					const sim = listData.data.find((s) => s.name === name);
+					if (!sim) {
+						const availableNames = listData.data.map((s) => s.name).join(', ');
+						throw new Error(`No SIM found with name: ${name}. Available SIM names: ${availableNames}`);
+					}
+
+					// Send the SMS message
+					const smsResponse = await fetch(`https://api.s-imsy.com/api/v1/endpoints/${sim.id}/sms`, {
+						method: 'POST',
+						headers: {
+							'Authorization': `Bearer ${config.token}`,
+							'Content-Type': 'application/json'
+						},
+						body: JSON.stringify({
+							payloadText,
+							protocolId: 0,
+							dataCodingScheme: 0
+						})
+					});
+
+					if (!smsResponse.ok) {
+						const errorText = await smsResponse.text();
+						throw new Error(`SMS API request failed with status ${smsResponse.status}: ${errorText}`);
+					}
+
+					const smsResult = await smsResponse.json();
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: `SMS sent to SIM '${name}' (ID: ${sim.id}). API response: ${JSON.stringify(smsResult, null, 2)}`
+							}
+						]
+					};
+				} catch (error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error sending SMS: ${error instanceof Error ? error.message : 'Unknown error'}`
+							}
+						]
+					};
+				}
+			}
+		);
+
 		// Get detailed SIM information tool
 		this.server.tool(
 			"getSimInfo",
 			"Get detailed information about a specific SIM",
 			{
-				name: z.string().describe("The name of the SIM to get information for")
+				name: simNames.length > 0
+					? z.enum([...simNames] as [string, ...string[]]).describe("The name of the SIM to get information for")
+					: z.string().describe("The name of the SIM to get information for")
 			},
 			{ group: "General" },
 			async ({ name }) => {
@@ -128,7 +241,8 @@ export class MyMCP extends McpAgent {
 					// Find the SIM with the matching name
 					const sim = listData.data.find((s) => s.name === name);
 					if (!sim) {
-						throw new Error(`No SIM found with name: ${name}`);
+						const availableNames = listData.data.map((s) => s.name).join(', ');
+						throw new Error(`No SIM found with name: ${name}. Available SIM names: ${availableNames}`);
 					}
 
 					// Get detailed information for the specific SIM
