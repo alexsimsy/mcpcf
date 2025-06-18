@@ -1,0 +1,26 @@
+# Cloudflare Worker wrangler.toml
+name = "remote-mcp-server-authless"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# Development configuration
+[dev]
+port = 8787
+
+# Production configuration
+[env.production]
+workers_dev = false
+route = "mcp.s-imsy.com/*"
+
+# KV Namespaces
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "abd48f0bb0804d50adc2c46ed0424715"
+
+[[kv_namespaces]]
+binding = "IP_BLOCK_KV"
+id = "59b6e2a66ed04e32b51fece7c1d46eb6"
+
+# Environment variables
+[vars]
+TOKEN = "your-secret-token-here"  # Replace with your actual token 
