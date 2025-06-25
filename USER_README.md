@@ -16,9 +16,7 @@ Welcome! This guide is for end users of the S-IMSY MCP Server. It provides a qui
    - If your tool only supports local/stdio MCP servers (VS Code, Claude Desktop, Cursor, Windsurf, etc.), use the [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) proxy as described in the main README.
 
 3. **Use the tools:**
-   - **Get SIMs:** List all your SIMs and their status.
-   - **Get SIM Info:** Select a SIM (dropdown or type the name) to see detailed info and usage.
-   - **Send SMS:** Select a SIM and send an SMS message.
+
 
 ---
 
@@ -59,4 +57,4 @@ A: Yes, as long as you keep your MCP Token private. If you think your token is c
 ## 📚 More Info
 
 - For advanced configuration, troubleshooting, and technical details, see the main `README.md` in this repository.
-- This user guide is kept up to date with code changes. If you notice anything out of date, please let the SIMSY team know! 
+- This user guide is kept up to date with code changes. If you notice anything out of date, please let the SIMSY team know!

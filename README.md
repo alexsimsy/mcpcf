@@ -27,45 +27,7 @@ Welcome to the S-IMSY MCP Server! This guide will help you connect to the server
 
 ### General Group
 
-#### 1. `getSims`
-- **Purpose:** Get an overview of all SIMs on your account.
-- **Returns:**  
-  - SIM ID  
-  - SIM Name  
-  - Network Status  
-  - Total number of SIMs
-- **Usage:** Use this tool to list and identify the SIMs you want to work with.
 
-#### 2. `getSimInfo`
-- **Purpose:** Get detailed information about a specific SIM.
-- **Input:** SIM Name (as shown in the `getSims` output)
-- **SIM Name Selection:**
-  - If your client supports it, you will see a dropdown of available SIM names for easy selection.
-  - If not, you can type the SIM name manually. If the name is invalid, the error message will list all available SIM names.
-- **Returns:**  
-  - `latestActivity`
-  - `endpointStatus.active` (true/false)
-  - `endpointNetworkStatus.active` (true/false)
-  - `latestRatType.name`
-  - `latestServingOperatorDescription`
-  - `latestCountryName`
-  - `usageRolling24H` (in MB)
-  - `usageRolling7D` (in MB)
-  - `usageRolling28D` (in MB)
-- **Usage:** Use this tool to get a detailed, normalized view of a SIM's status and usage.
-
-#### 3. `sendSms`
-- **Purpose:** Send an SMS message to a SIM card.
-- **Inputs:**
-  - `name`: The name of the SIM (dropdown or manual entry, as above)
-  - `payloadText`: The SMS message you want to send
-- **SIM Name Selection:**
-  - If your client supports it, you will see a dropdown of available SIM names for easy selection.
-  - If not, you can type the SIM name manually. If the name is invalid, the error message will list all available SIM names.
-- **How it works:**
-  1. Looks up the SIM by name to get its endpoint ID.
-  2. Sends a POST request to `https://api.s-imsy.com/api/v1/endpoints/{endpointId}/sms` with the message payload.
-  3. Returns the API response or an error message.
 
 ---
 
@@ -168,4 +130,4 @@ If your client does **not** support direct HTTP/SSE connections or custom header
 
 ---
 
-If you have any questions or need further help, please contact the SIMSY support team or refer to the documentation above. 
+If you have any questions or need further help, please contact the SIMSY support team or refer to the documentation above.
