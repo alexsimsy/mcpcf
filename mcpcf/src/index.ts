@@ -352,6 +352,158 @@ export class MyMCP extends McpAgent {
 			}
 		);
 
+		// Restart SIM tool - Force SIM to detach and reconnect
+		this.server.tool(
+			"restartSim",
+			"Force a SIM to detach from the network and reconnect. Useful when a SIM is connected but not getting a data session.",
+			{
+				name: z.string().describe("The name of the SIM to restart"),
+				token: z.string().describe("The authentication token")
+			},
+			{ group: "General" },
+			async ({ name, token }) => {
+				if (!token) {
+					return {
+						content: [
+							{ type: "text", text: "Error: No token provided" }
+						]
+					};
+				}
+				
+				try {
+					// Fetch SIMs for this token
+					const listResponse = await fetch('https://api.s-imsy.com/api/v1/endpoints', {
+						headers: {
+							'Authorization': `Bearer ${token}`,
+							'Content-Type': 'application/json'
+						}
+					});
+					if (!listResponse.ok) {
+						throw new Error(`API request failed with status ${listResponse.status}`);
+					}
+					const listData = await listResponse.json() as ApiResponse;
+					if (!listData.success) {
+						throw new Error(listData.messages.join(', '));
+					}
+					
+					// Find the SIM with the matching name
+					const sim = listData.data.find((s: any) => s.name === name);
+					if (!sim) {
+						const availableNames = listData.data.map((s: any) => s.name).join(', ');
+						throw new Error(`No SIM found with name: ${name}. Available SIM names: ${availableNames}`);
+					}
+					
+					// Call the reset endpoint to force detach and end data session
+					const resetResponse = await fetch(`https://api.s-imsy.com/api/v1/endpoints/${sim.id}/reset`, {
+						method: 'POST',
+						headers: {
+							'Authorization': `Bearer ${token}`,
+							'Content-Type': 'application/json'
+						},
+						body: JSON.stringify({
+							forceDetach: true,
+							endDataSession: true
+						})
+					});
+					
+					if (!resetResponse.ok) {
+						const errorText = await resetResponse.text();
+						throw new Error(`Reset API request failed with status ${resetResponse.status}: ${errorText}`);
+					}
+					
+					const resetResult = await resetResponse.json();
+					
+					return {
+						content: [
+							{
+								type: "text",
+								text: `SIM '${name}' (ID: ${sim.id}) restart initiated successfully!
+
+The SIM has been forced to detach from the network and end its data session. It will now attempt to reconnect automatically.
+
+API Response: ${JSON.stringify(resetResult, null, 2)}`
+							}
+						]
+					};
+				} catch (error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error restarting SIM: ${error instanceof Error ? error.message : 'Unknown error'}`
+							}
+						]
+					};
+				}
+			}
+		);
+
+		// Account Events tool - Get account events with optional filters
+		this.server.tool(
+			"accountEvents",
+			"Get account events with optional date and pagination filters.",
+			{
+				token: z.string().describe("The authentication token"),
+				from: z.string().optional().describe("Start date (ISO 8601 or API-accepted format)"),
+				to: z.string().optional().describe("End date (ISO 8601 or API-accepted format)"),
+				offset: z.number().int().optional().describe("Offset for pagination (default 0)"),
+				limit: z.number().int().optional().describe("Limit for pagination (default 0)"),
+				sortOrder: z.number().int().optional().describe("Sort order (default 1)"),
+				filter: z.string().optional().describe("Filter string (optional)")
+			},
+			{ group: "General" },
+			async ({ token, from, to, offset, limit, sortOrder, filter }) => {
+				if (!token) {
+					return {
+						content: [
+							{ type: "text", text: "Error: No token provided" }
+						]
+					};
+				}
+
+				try {
+					const params = new URLSearchParams();
+					if (from) params.append("from", from);
+					if (to) params.append("to", to);
+					const limitValue = (limit === undefined || limit === null) ? 200 : limit;
+					params.append("limit", String(limitValue));
+					if (offset !== undefined) params.append("offset", String(offset));
+					if (sortOrder !== undefined) params.append("sortOrder", String(sortOrder));
+					if (filter) params.append("filter", filter);
+
+					const url = `https://api.s-imsy.com/api/v1/events${params.toString() ? '?' + params.toString() : ''}`;
+					const response = await fetch(url, {
+						headers: {
+							'Authorization': `Bearer ${token}`,
+							'Content-Type': 'application/json'
+						}
+					});
+					const data = await response.json();
+					const dataAny = data as any;
+					if (!response.ok || dataAny.success === false) {
+						throw new Error(dataAny.messages ? dataAny.messages.join(', ') : JSON.stringify(dataAny));
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Account Events:\n${JSON.stringify(dataAny, null, 2)}`
+							}
+						]
+					};
+				} catch (error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error retrieving account events: ${error instanceof Error ? error.message : 'Unknown error'}`
+							}
+						]
+					};
+				}
+			}
+		);
+
 		// Web Access tool - Create edge service for web access to device
 		this.server.tool(
 			"webAccess",
@@ -864,6 +1016,173 @@ The edge service has been removed from the routing policy and deleted.`
 								type: "text",
 								text: `Error removing web access: ${error instanceof Error ? error.message : 'Unknown error'}`
 							}
+						]
+					};
+				}
+			}
+		);
+
+		// Store Device Key Value
+		this.server.tool(
+			"storeDeviceKeyValue",
+			"Store or update a key-value for a device (router/ethernet) on the SIMSY network.",
+			{
+				token: z.string().describe("The authentication token"),
+				endpointId: z.string().describe("The endpoint ID (SIM ID) to store the key-value for"),
+				key: z.string().describe("The key to store (e.g. ROUTER_MFR, ROUTER_MOD, ROUTER_USER, ROUTER_PW, ETH1_NAME, ETH1_IP, ETH1_PORT, etc.)"),
+				value: z.union([z.string(), z.number()]).describe("The value to store (string or integer)")
+			},
+			{ group: "Device Management" },
+			async ({ token, endpointId, key, value }) => {
+				const allowedKeys = [
+					"ROUTER_MFR", "ROUTER_MOD", "ROUTER_USER", "ROUTER_PW",
+					...Array.from({length: 4}, (_, i) => `ETH${i+1}_NAME`),
+					...Array.from({length: 4}, (_, i) => `ETH${i+1}_IP`),
+					...Array.from({length: 4}, (_, i) => `ETH${i+1}_PORT`)
+				];
+				if (!allowedKeys.includes(key)) {
+					return {
+						content: [
+							{ type: "text", text: `Error: Invalid key. Allowed keys are: ${allowedKeys.join(", ")}` }
+						]
+					};
+				}
+				if (!token || !endpointId) {
+					return {
+						content: [
+							{ type: "text", text: "Error: token and endpointId are required" }
+						]
+					};
+				}
+				try {
+					const url = `https://api.s-imsy.com/api/v1/endpoints/${endpointId}/keyvalues/${key}`;
+					const response = await fetch(url, {
+						method: 'PUT',
+						headers: {
+							'Authorization': `Bearer ${token}`,
+							'Content-Type': 'application/json'
+						},
+						body: JSON.stringify({ value: value })
+					});
+					const data = await response.json();
+					const dataAny = data as any;
+					if (!response.ok) {
+						throw new Error(dataAny.messages ? dataAny.messages.join(', ') : JSON.stringify(dataAny));
+					}
+					return {
+						content: [
+							{ type: "text", text: `Key-value stored successfully: ${key} = ${value}` }
+						]
+					};
+				} catch (error) {
+					return {
+						content: [
+							{ type: "text", text: `Error storing key-value: ${error instanceof Error ? error.message : 'Unknown error'}` }
+						]
+					};
+				}
+			}
+		);
+
+		// Get Device Key Values
+		this.server.tool(
+			"getDeviceKeyValues",
+			"Retrieve all key-values for a device (router/ethernet) on the SIMSY network.",
+			{
+				token: z.string().describe("The authentication token"),
+				endpointId: z.string().describe("The endpoint ID (SIM ID) to retrieve key-values for")
+			},
+			{ group: "Device Management" },
+			async ({ token, endpointId }) => {
+				if (!token || !endpointId) {
+					return {
+						content: [
+							{ type: "text", text: "Error: token and endpointId are required" }
+						]
+					};
+				}
+				try {
+					const url = `https://api.s-imsy.com/api/v1/endpoints/${endpointId}/keyvalues`;
+					const response = await fetch(url, {
+						headers: {
+							'Authorization': `Bearer ${token}`,
+							'Content-Type': 'application/json'
+						}
+					});
+					const data = await response.json();
+					const dataAny = data as any;
+					if (!response.ok) {
+						throw new Error(dataAny.messages ? dataAny.messages.join(', ') : JSON.stringify(dataAny));
+					}
+					return {
+						content: [
+							{ type: "text", text: `Device key-values:\n${JSON.stringify(dataAny, null, 2)}` }
+						]
+					};
+				} catch (error) {
+					return {
+						content: [
+							{ type: "text", text: `Error retrieving key-values: ${error instanceof Error ? error.message : 'Unknown error'}` }
+						]
+					};
+				}
+			}
+		);
+
+		// Delete Device Key Value
+		this.server.tool(
+			"deleteDeviceKeyValue",
+			"Delete a specific key-value for a device (router/ethernet) on the SIMSY network.",
+			{
+				token: z.string().describe("The authentication token"),
+				endpointId: z.string().describe("The endpoint ID (SIM ID) to delete the key-value from"),
+				key: z.string().describe("The key to delete (e.g. ROUTER_MFR, ROUTER_MOD, ROUTER_USER, ROUTER_PW, ETH1_NAME, ETH1_IP, ETH1_PORT, etc.)")
+			},
+			{ group: "Device Management" },
+			async ({ token, endpointId, key }) => {
+				const allowedKeys = [
+					"ROUTER_MFR", "ROUTER_MOD", "ROUTER_USER", "ROUTER_PW",
+					...Array.from({length: 4}, (_, i) => `ETH${i+1}_NAME`),
+					...Array.from({length: 4}, (_, i) => `ETH${i+1}_IP`),
+					...Array.from({length: 4}, (_, i) => `ETH${i+1}_PORT`)
+				];
+				if (!allowedKeys.includes(key)) {
+					return {
+						content: [
+							{ type: "text", text: `Error: Invalid key. Allowed keys are: ${allowedKeys.join(", ")}` }
+						]
+					};
+				}
+				if (!token || !endpointId) {
+					return {
+						content: [
+							{ type: "text", text: "Error: token and endpointId are required" }
+						]
+					};
+				}
+				try {
+					const url = `https://api.s-imsy.com/api/v1/endpoints/${endpointId}/keyvalues/${key}`;
+					const response = await fetch(url, {
+						method: 'DELETE',
+						headers: {
+							'Authorization': `Bearer ${token}`,
+							'Content-Type': 'application/json'
+						}
+					});
+					if (!response.ok) {
+						const data = await response.json();
+						const dataAny = data as any;
+						throw new Error(dataAny.messages ? dataAny.messages.join(', ') : JSON.stringify(dataAny));
+					}
+					return {
+						content: [
+							{ type: "text", text: `Key-value deleted successfully: ${key}` }
+						]
+					};
+				} catch (error) {
+					return {
+						content: [
+							{ type: "text", text: `Error deleting key-value: ${error instanceof Error ? error.message : 'Unknown error'}` }
 						]
 					};
 				}
